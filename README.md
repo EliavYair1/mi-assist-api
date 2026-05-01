@@ -234,3 +234,4 @@ Webhook → /v1/billing/webhook → plan updated in DB
     ↓
 Next JWT refresh → new token carries updated plan
 ```
+# mi-assist-api
