@@ -1,0 +1,72 @@
+# ════════════════════════════════════════════════════════════
+#  Nginx config — WordPress + MI Assist API on same server
+#  File: /etc/nginx/sites-available/yourdomain.com
+# ════════════════════════════════════════════════════════════
+
+server {
+    listen 80;
+    server_name yourdomain.com www.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name yourdomain.com www.yourdomain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # ── MI Assist API  →  FastAPI on port 8000 ──────────────
+    location /v1/ {
+        proxy_pass         http://127.0.0.1:8000/v1/;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+
+        # CORS headers (FastAPI also sets these — belt & suspenders)
+        add_header Access-Control-Allow-Origin "https://yourdomain.com" always;
+        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+
+        if ($request_method = OPTIONS) {
+            return 204;
+        }
+    }
+
+    location /health {
+        proxy_pass http://127.0.0.1:8000/health;
+    }
+
+    # ── WordPress  →  PHP-FPM ────────────────────────────────
+    root /var/www/html/wordpress;
+    index index.php;
+
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass   unix:/run/php/php8.2-fpm.sock;
+        fastcgi_index  index.php;
+        fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include        fastcgi_params;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)$ {
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location ~ /\.ht { deny all; }
+    location = /favicon.ico { log_not_found off; access_log off; }
+    location = /robots.txt  { log_not_found off; access_log off; }
+
+    client_max_body_size 11M;   # slightly above MAX_UPLOAD_MB
+}

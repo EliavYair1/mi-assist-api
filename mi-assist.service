@@ -1,0 +1,43 @@
+# ════════════════════════════════════════════════════════════
+#  Systemd service — MI Assist FastAPI
+#  File: /etc/systemd/system/mi-assist.service
+#
+#  After creating:
+#    systemctl daemon-reload
+#    systemctl enable mi-assist
+#    systemctl start mi-assist
+#    systemctl status mi-assist
+# ════════════════════════════════════════════════════════════
+
+[Unit]
+Description=MI Assist FastAPI — MetroIntegrity
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=exec
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/mi-assist-api
+EnvironmentFile=/var/www/mi-assist-api/.env
+
+# 4 Uvicorn workers — adjust to (2 × CPU cores) + 1
+ExecStart=/var/www/mi-assist-api/venv/bin/gunicorn app.main:app \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 60 \
+    --keep-alive 5 \
+    --access-logfile /var/log/mi-assist/access.log \
+    --error-logfile /var/log/mi-assist/error.log \
+    --log-level info
+
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
