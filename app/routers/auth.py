@@ -83,8 +83,13 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int):
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(
                 f"{settings.wp_site_url}/wp-json/mi-assist/v1/verify-nonce",
-                params={"nonce": nonce, "user_id": wp_user_id},
-                headers={"X-MI-Secret": settings.wp_api_secret},
+                # params={"nonce": nonce, "user_id": wp_user_id},
+                # headers={"X-MI-Secret": settings.wp_api_secret},
+                params={
+    "nonce": nonce,
+    "user_id": wp_user_id,
+    "mi_secret": settings.wp_api_secret,
+},
             )
         if r.status_code != 200 or not r.json().get("valid"):
             raise HTTPException(status_code=401, detail="Invalid WordPress session")
