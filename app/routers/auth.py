@@ -91,7 +91,8 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int):
     "mi_secret": settings.wp_api_secret,
 },
             )
-        if r.status_code != 200 or not r.json().get("valid"):
+        # if r.status_code != 200 or not r.json().get("valid"):
+        if r.status_code not in (200, 202) or not r.json().get("valid"):
             raise HTTPException(status_code=401, detail="Invalid WordPress session")
     except httpx.RequestError:
         raise HTTPException(status_code=503, detail="Cannot reach WordPress for auth validation")
