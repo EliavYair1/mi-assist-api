@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
-import httpx
+import re
 
 from app.database import get_db
 from app.models import User
@@ -28,15 +28,10 @@ class TokenResponse(BaseModel):
 
 @router.post("/exchange", response_model=TokenResponse)
 async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(get_db)):
-    """
-    WordPress calls this after login.
-    We validate the nonce against the WP REST API,
-    then return a JWT for the MI Assist chat UI.
-    """
-    # 1. Validate WP nonce
+    # 1. Validate nonce format
     await _verify_wp_nonce(body.wp_nonce, body.wp_user_id)
 
-    # 2. Get or create user in our DB
+    # 2. Get or create user
     result = await db.execute(select(User).where(User.wp_user_id == body.wp_user_id))
     user = result.scalar_one_or_none()
 
@@ -46,13 +41,13 @@ async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(
         await db.commit()
         await db.refresh(user)
 
-    # 3. Calculate remaining usage today
+    # 3. Usage
     from app.services.usage import get_usage_today, get_limit
     usage = await get_usage_today(db, user.id)
     limit = get_limit(user.plan)
     remaining = max(0, limit - usage.message_count)
 
-    # 4. Issue JWT
+    # 4. JWT
     token = create_jwt(user.id, user.wp_user_id, user.plan)
 
     return TokenResponse(
@@ -74,40 +69,8 @@ async def get_me(current_user: User = Depends(get_current_user)):
     }
 
 
-# async def _verify_wp_nonce(nonce: str, wp_user_id: int):
-#     """
-#     Call WordPress REST API to verify the nonce is valid
-#     and belongs to the claimed user.
-#     """
-#     try:
-#         async with httpx.AsyncClient(timeout=5.0) as client:
-#             r = await client.get(
-#                 f"{settings.wp_site_url}/wp-json/mi-assist/v1/verify-nonce",
-#                 # params={"nonce": nonce, "user_id": wp_user_id},
-#                 # headers={"X-MI-Secret": settings.wp_api_secret},
-#                 params={
-#     "nonce": nonce,
-#     "user_id": wp_user_id,
-#     "mi_secret": settings.wp_api_secret,
-# },
-#             )
 async def _verify_wp_nonce(nonce: str, wp_user_id: int):
-    """
-    Simplified auth: verify that the request comes with a valid
-    nonce format and known user. WordPress nonce validation is
-    handled client-side; we trust the WP_API_SECRET as shared secret.
-    """
-    # Just verify the nonce is not empty and user_id is valid
     if not nonce or not wp_user_id:
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
-    
-    # Nonce must be 10 hex characters (WordPress nonce format)
-    import re
-    if not re.match(r'^[0-9a-f]{10}$', nonce):
+    if not re.match(r'^[0-9a-f]{8,12}$', nonce):
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
-        
-        # if r.status_code != 200 or not r.json().get("valid"):
-        if r.status_code not in (200, 202) or not r.json().get("valid"):
-            raise HTTPException(status_code=401, detail="Invalid WordPress session")
-    except httpx.RequestError:
-        raise HTTPException(status_code=503, detail="Cannot reach WordPress for auth validation")
