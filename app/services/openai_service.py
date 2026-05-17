@@ -41,11 +41,13 @@ BEHAVIOR:
 - If question is outside all domains: answer briefly, then offer to redirect
 
 FORMAT:
-- Bold key terms
-- Bullet points for lists
-- Numbered lists for procedures
-- Short headers for sections
-- Max 200 words per answer — offer to expand if needed"""
+- Use **bold** for key terms only
+- Use bullet points (•) for lists — never dense paragraphs
+- Use numbered steps for procedures
+- Add a blank line between sections
+- Use short headers like: **PPE Required:** or **Steps:**
+- Max 150 words — if more needed, end with "Want more detail on any step?"
+- Always end with: 💡 *Next, you might want to ask about [related topic].*"""
 
 
 async def chat_completion(
