@@ -18,9 +18,10 @@ MAX_HISTORY = 10   # messages to include for context (last N)
 
 
 class ChatRequest(BaseModel):
-    message: str
+  message: str
     conversation_id: str | None = None
-
+    image_base64: str | None = None
+    image_type: str | None = None
 
 class ChatResponse(BaseModel):
     reply: str
@@ -64,31 +65,31 @@ async def send_message(
     )
     history = list(reversed(result.scalars().all()))
 
-    openai_messages = [
+openai_messages = [
         {"role": msg.role, "content": msg.content}
         for msg in history
     ]
-if body.image_base64 and body.image_type:
-    openai_messages.append({
-        "role": "user",
-        "content": [
-            {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{body.image_type};base64,{body.image_base64}"
+    if body.image_base64 and body.image_type:
+        openai_messages.append({
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{body.image_type};base64,{body.image_base64}"
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": body.message or "Please analyze this image from a safety and inspection perspective."
                 }
-            },
-            {
-                "type": "text",
-                "text": body.message or "Please analyze this image from a safety and inspection perspective."
-            }
-        ]
-    })
-else:
-    openai_messages.append({"role": "user", "content": body.message})   
+            ]
+        })
+    else:
+        openai_messages.append({"role": "user", "content": body.message})
     
 
-    # ── 4. Call OpenAI ──
+    # ── 4. Call OpenAI ─
     try:
         reply, tokens = await chat_completion(
             messages=openai_messages,
