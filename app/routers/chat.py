@@ -68,7 +68,25 @@ async def send_message(
         {"role": msg.role, "content": msg.content}
         for msg in history
     ]
-    openai_messages.append({"role": "user", "content": body.message})
+if body.image_base64 and body.image_type:
+    openai_messages.append({
+        "role": "user",
+        "content": [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{body.image_type};base64,{body.image_base64}"
+                }
+            },
+            {
+                "type": "text",
+                "text": body.message or "Please analyze this image from a safety and inspection perspective."
+            }
+        ]
+    })
+else:
+    openai_messages.append({"role": "user", "content": body.message})   
+    
 
     # ── 4. Call OpenAI ──
     try:
