@@ -135,3 +135,61 @@ async def _get_or_create_conversation(
     db.add(conv)
     await db.flush()
     return conv
+
+@router.get("/conversations")
+async def get_conversations(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get user's recent conversations."""
+    from app.models import Conversation
+    result = await db.execute(
+        select(Conversation)
+        .where(Conversation.user_id == current_user.id)
+        .order_by(Conversation.last_message_at.desc())
+        .limit(20)
+    )
+    convs = result.scalars().all()
+    return [
+        {
+            "id": str(c.id),
+            "title": c.title or "Untitled",
+            "created_at": c.created_at.isoformat() if c.created_at else None,
+            "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
+        }
+        for c in convs
+    ]
+
+
+@router.get("/conversations/{conversation_id}/messages")
+async def get_conversation_messages(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get messages for a specific conversation."""
+    from app.models import Conversation
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.user_id == current_user.id,
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    msgs_result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .order_by(Message.created_at.asc())
+    )
+    msgs = msgs_result.scalars().all()
+    return [
+        {
+            "role": m.role,
+            "content": m.content,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m in msgs
+    ]
