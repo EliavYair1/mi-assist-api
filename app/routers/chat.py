@@ -10,7 +10,8 @@ from app.models import User, Conversation, Message
 from app.auth import get_current_user
 from app.services import usage as usage_svc
 from app.services.openai_service import chat_completion
-
+from fastapi import UploadFile, File
+import io
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -210,3 +211,64 @@ async def get_conversation_messages(
         }
         for m in msgs
     ]
+
+
+
+@router.post("/analyze-pdf")
+async def analyze_pdf(
+    file: UploadFile = File(...),
+    question: str = "Please summarize this document and highlight key safety findings.",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a PDF and ask questions about it."""
+    if file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 20MB.")
+
+    # Extract text from PDF
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(content))
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        text = text[:12000]  # Limit to avoid token overflow
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Could not read PDF file.")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="PDF appears to be empty or image-only.")
+
+    # Send to GPT-4o
+    messages = [
+        {
+            "role": "user",
+            "content": f"Document content:\n\n{text}\n\nQuestion: {question}"
+        }
+    ]
+
+    try:
+        reply, tokens = await chat_completion(
+            messages=messages,
+            user_language=current_user.language_pref,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail="AI service error.")
+
+    # Save to conversation
+    conversation = await _get_or_create_conversation(db, current_user, None)
+    db.add(Message(conversation_id=conversation.id, role="user", content=f"[PDF: {file.filename}] {question}"))
+    db.add(Message(conversation_id=conversation.id, role="assistant", content=reply, tokens_used=tokens))
+    await usage_svc.increment_message_count(db, current_user.id)
+    await db.commit()
+
+    return {
+        "reply": reply,
+        "conversation_id": str(conversation.id),
+        "filename": file.filename,
+        "pages": len(reader.pages),
+    }
