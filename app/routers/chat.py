@@ -217,10 +217,11 @@ async def get_conversation_messages(
 @router.post("/analyze-pdf")
 async def analyze_pdf(
     file: UploadFile = File(...),
-    question: str = Form(default="Please summarize this document and highlight key safety findings."),
+    question: str = Form(default="Please summarize..."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    logger.info(f"PDF upload: filename={file.filename}, content_type={file.content_type}")
     """Upload a PDF and ask questions about it."""
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
