@@ -217,7 +217,7 @@ async def get_conversation_messages(
 @router.post("/analyze-pdf")
 async def analyze_pdf(
     file: UploadFile = File(...),
-    question: str = "Please summarize this document and highlight key safety findings.",
+    question: str = Form(default="Please summarize this document and highlight key safety findings."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
