@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
@@ -10,7 +10,7 @@ from app.models import User, Conversation, Message
 from app.auth import get_current_user
 from app.services import usage as usage_svc
 from app.services.openai_service import chat_completion
-from fastapi import UploadFile, File
+
 import io
 logger = logging.getLogger(__name__)
 router = APIRouter()
