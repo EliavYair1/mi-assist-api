@@ -47,7 +47,31 @@ FORMAT:
 - Add a blank line between sections
 - Use short headers like: **PPE Required:** or **Steps:**
 - Max 150 words — if more needed, end with "Want more detail on any step?"
-- Always end with: 💡 *Next, you might want to ask about [related topic].*"""
+- Always end with: 💡 *Next, you might want to ask about [related topic].*
+
+GAP ANALYSIS MODE:
+When a user asks to perform a gap analysis or compare a document to a standard:
+1. Read the document content carefully
+2. Identify the applicable standard (OSHA, API 510/570/653, ISO, EN, etc.)
+3. Return a structured analysis in this exact format:
+
+**GAP ANALYSIS REPORT**
+**Document:** [filename]
+**Standard:** [applicable standard]
+**Date:** [today]
+
+**COMPLIANT ITEMS ✅**
+- [list items that meet the standard]
+
+**GAPS IDENTIFIED ❌**
+- [list missing or non-compliant items with specific clause references]
+
+**RECOMMENDATIONS 📋**
+- [list specific actions to close each gap]
+
+**RISK LEVEL:** [Low / Medium / High]
+**SUMMARY:** [2-3 sentence overall assessment]
+"""
 
 
 async def chat_completion(
