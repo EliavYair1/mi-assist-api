@@ -239,8 +239,8 @@ async def analyze_pdf(
             text += page.extract_text() or ""
         text = text[:12000]  # Limit to avoid token overflow
     except Exception as e:
-        raise HTTPException(status_code=400, detail="Could not read PDF file.")
-
+    logger.error(f"PDF read error: {e}")
+    raise HTTPException(status_code=400, detail=f"Could not read PDF file: {str(e)}")
     if not text.strip():
         raise HTTPException(status_code=400, detail="PDF appears to be empty or image-only.")
 
