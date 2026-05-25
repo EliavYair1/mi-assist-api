@@ -228,6 +228,8 @@ async def analyze_pdf(
     try:
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(content))
+          if reader.is_encrypted:
+            reader.decrypt("")  # Try empty password first
         text = ""
         for page in reader.pages:
             text += page.extract_text() or ""
