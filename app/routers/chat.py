@@ -119,8 +119,15 @@ async def analyze_pdf(
     try:
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(content))
-        if reader.is_encrypted:
-            reader.decrypt("")
+ if reader.is_encrypted:
+            try:
+                reader.decrypt("")
+            except Exception:
+                pass
+            try:
+                reader.decrypt("owner")
+            except Exception:
+                pass
         text = ""
         for page in reader.pages:
             text += page.extract_text() or ""
