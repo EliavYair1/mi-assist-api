@@ -119,7 +119,7 @@ async def analyze_pdf(
     try:
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(content))
-            if reader.is_encrypted:
+        if reader.is_encrypted:
             try:
                 reader.decrypt("")
             except Exception:
