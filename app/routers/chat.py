@@ -4,6 +4,7 @@ from sqlalchemy import select
 from pydantic import BaseModel
 from datetime import datetime, timezone
 import logging
+import io
 
 from app.database import get_db
 from app.models import User, Conversation, Message
@@ -11,7 +12,6 @@ from app.auth import get_current_user
 from app.services import usage as usage_svc
 from app.services.openai_service import chat_completion
 
-import io
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -38,7 +38,6 @@ async def send_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # 1. Check daily limit
     usage = await usage_svc.get_usage_today(db, current_user.id)
     allowed, remaining = usage_svc.check_message_limit(usage, current_user.plan)
 
@@ -55,10 +54,8 @@ async def send_message(
             }
         )
 
-    # 2. Get or create conversation
     conversation = await _get_or_create_conversation(db, current_user, body.conversation_id)
 
-    # 3. Build message history
     result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation.id)
@@ -91,7 +88,6 @@ async def send_message(
     else:
         openai_messages.append({"role": "user", "content": body.message})
 
-    # 4. Call OpenAI
     try:
         reply, tokens = await chat_completion(
             messages=openai_messages,
@@ -101,7 +97,6 @@ async def send_message(
         logger.error(f"OpenAI error for user {current_user.id}: {e}")
         raise HTTPException(status_code=502, detail="AI service temporarily unavailable. Please try again.")
 
-    # 5. Save messages
     user_msg = Message(
         conversation_id=conversation.id,
         role="user",
@@ -117,10 +112,9 @@ async def send_message(
     db.add(assistant_msg)
 
     if not conversation.title:
-        conversation.title = body.message[:80] + ("…" if len(body.message) > 80 else "")
+        conversation.title = body.message[:80] + ("..." if len(body.message) > 80 else "")
     conversation.last_message_at = datetime.now(timezone.utc)
 
-    # 6. Increment usage
     await usage_svc.increment_message_count(db, current_user.id)
     await db.commit()
 
@@ -213,7 +207,6 @@ async def get_conversation_messages(
     ]
 
 
-
 @router.post("/analyze-pdf")
 async def analyze_pdf(
     file: UploadFile = File(...),
@@ -221,7 +214,7 @@ async def analyze_pdf(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-      logger.info(f"PDF upload: filename={file.filename}, content_type={file.content_type}")
+    logger.info(f"PDF upload: filename={file.filename}, content_type={file.content_type}")
 
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
@@ -239,7 +232,7 @@ async def analyze_pdf(
         for page in reader.pages:
             text += page.extract_text() or ""
         text = text[:12000]
-        logger.info(f"PDF text extracted: {len(text)} chars")
+        logger.info(f"PDF text extracted: {len(text)} chars, pages: {len(reader.pages)}")
     except Exception as e:
         logger.error(f"PDF read error: {e}")
         raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
@@ -264,8 +257,17 @@ async def analyze_pdf(
         raise HTTPException(status_code=502, detail="AI service error.")
 
     conversation = await _get_or_create_conversation(db, current_user, None)
-    db.add(Message(conversation_id=conversation.id, role="user", content=f"[PDF: {file.filename}] {question}"))
-    db.add(Message(conversation_id=conversation.id, role="assistant", content=reply, tokens_used=tokens))
+    db.add(Message(
+        conversation_id=conversation.id,
+        role="user",
+        content=f"[PDF: {file.filename}] {question}"
+    ))
+    db.add(Message(
+        conversation_id=conversation.id,
+        role="assistant",
+        content=reply,
+        tokens_used=tokens
+    ))
     await usage_svc.increment_message_count(db, current_user.id)
     await db.commit()
 
