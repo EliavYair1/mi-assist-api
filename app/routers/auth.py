@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
+import httpx  
 import re
 
 from app.database import get_db
@@ -16,6 +17,7 @@ class ExchangeRequest(BaseModel):
     wp_user_id: int
     wp_nonce: str
     email: str
+    plan: str = "free"
 
 
 class TokenResponse(BaseModel):
@@ -26,20 +28,36 @@ class TokenResponse(BaseModel):
     usage_remaining: int
 
 
+def normalize_plan(plan: str) -> str:
+    mapping = {
+        "free": "free",
+        "pro": "pro",
+        "expert": "pro_plus",
+        "team": "team",
+    }
+    return mapping.get(plan.lower(), "free")
+
+
 @router.post("/exchange", response_model=TokenResponse)
 async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(get_db)):
-    # 1. Validate nonce format
-    await _verify_wp_nonce(body.wp_nonce, body.wp_user_id)
+    # 1. Verify with WordPress — מקבלים גם את הפלאן
+    wp_data = await _verify_wp_nonce(body.wp_nonce, body.wp_user_id)
+    wp_plan = wp_data.get("plan", "free")  # ← פלאן מ-WP, לא מה-body
 
     # 2. Get or create user
     result = await db.execute(select(User).where(User.wp_user_id == body.wp_user_id))
     user = result.scalar_one_or_none()
 
+    normalized_plan = normalize_plan(wp_plan)
+
     if not user:
-        user = User(wp_user_id=body.wp_user_id, email=body.email, plan="free")
+        user = User(wp_user_id=body.wp_user_id, email=body.email, plan=normalized_plan)
         db.add(user)
-        await db.commit()
-        await db.refresh(user)
+    else:
+        user.plan = normalized_plan
+
+    await db.commit()
+    await db.refresh(user)
 
     # 3. Usage
     from app.services.usage import get_usage_today, get_limit
@@ -57,7 +75,6 @@ async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(
         usage_remaining=remaining,
     )
 
-
 @router.get("/me")
 async def get_me(current_user: User = Depends(get_current_user)):
     return {
@@ -69,8 +86,26 @@ async def get_me(current_user: User = Depends(get_current_user)):
     }
 
 
-async def _verify_wp_nonce(nonce: str, wp_user_id: int):
+
+async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
     if not nonce or not wp_user_id:
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
-    if not re.match(r'^[0-9a-f]{8,12}$', nonce):
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(
+                f"{settings.wp_site_url}/wp-json/mi-assist/v1/verify-nonce",
+                params={"nonce": nonce, "user_id": wp_user_id},
+                headers={"X-MI-Secret": settings.wp_api_secret},
+            )
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="Cannot reach WordPress")
+
+    if response.status_code != 200:
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
+
+    data = response.json()
+    if not data.get("valid"):
+        raise HTTPException(status_code=401, detail="Invalid WordPress session")
+
+    return data  
