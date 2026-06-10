@@ -31,19 +31,44 @@ class ChatResponse(BaseModel):
     plan: str
 
 
+SAFETY_KEYWORDS = [
+    "safety", "osha", "ndt", "api", "inspection", "hazard", "ppe", "loto",
+    "confined space", "hot work", "fall protection", "welding", "pipe", "tank",
+    "pressure", "valve", "ultrasonic", "radiograph", "corrosion", "scaffold",
+    "permit", "jsa", "hazop", "refinery", "pipeline", "asme", "ansi", "niosh",
+    "בטיחות", "בדיקה", "צנרת", "מיכל", "סכנה", "ציוד מגן"
+]
+
+
+def is_safety_related(message: str) -> bool:
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in SAFETY_KEYWORDS)
+
+
 @router.post("", response_model=ChatResponse)
 async def send_message(
     body: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # 1. Usage check
     usage = await usage_svc.get_usage_today(db, current_user.id)
     allowed, remaining = usage_svc.check_message_limit(usage, current_user.plan)
     if not allowed:
         limit = usage_svc.get_limit(current_user.plan)
         raise HTTPException(status_code=429, detail={"error": "daily_limit_reached", "plan": current_user.plan, "limit": limit, "message": "You've reached your daily question limit.", "upgrade_url": "/pricing"})
 
+    # 2. Domain check
     conversation = await _get_or_create_conversation(db, current_user, body.conversation_id)
+    if not is_safety_related(body.message) and not body.image_base64:
+        return ChatResponse(
+            reply="MI Assist supports industrial safety, NDT methods, API inspection standards, OSHA compliance, maintenance activities, and field operations. Questions outside these professional areas are not supported.",
+            conversation_id=str(conversation.id),
+            usage_remaining=remaining,
+            plan=current_user.plan,
+        )
+
+    # 3. History
     result = await db.execute(select(Message).where(Message.conversation_id == conversation.id).order_by(Message.created_at.desc()).limit(MAX_HISTORY))
     history = list(reversed(result.scalars().all()))
     openai_messages = [{"role": msg.role, "content": msg.content} for msg in history]
@@ -67,7 +92,7 @@ async def send_message(
     await usage_svc.increment_message_count(db, current_user.id)
     await db.commit()
 
-    return ChatResponse(reply=reply, conversation_id=conversation.id, usage_remaining=max(0, remaining - 1), plan=current_user.plan)
+    return ChatResponse(reply=reply, conversation_id=str(conversation.id), usage_remaining=max(0, remaining - 1), plan=current_user.plan)
 
 
 async def _get_or_create_conversation(db, user, conversation_id):
