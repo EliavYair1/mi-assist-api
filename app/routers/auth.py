@@ -101,7 +101,7 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
     except httpx.RequestError:
         raise HTTPException(status_code=503, detail="Cannot reach WordPress")
 
-    if response.status_code != 200:
+    if response.status_code not in (200, 202):
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
     data = response.json()
