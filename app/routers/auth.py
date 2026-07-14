@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
-import httpx  
+import httpx
 import re
 
 from app.database import get_db
@@ -40,11 +40,9 @@ def normalize_plan(plan: str) -> str:
 
 @router.post("/exchange", response_model=TokenResponse)
 async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(get_db)):
-    # 1. Verify with WordPress — מקבלים גם את הפלאן
     wp_data = await _verify_wp_nonce(body.wp_nonce, body.wp_user_id)
-    wp_plan = wp_data.get("plan", "free")  # ← פלאן מ-WP, לא מה-body
+    wp_plan = wp_data.get("plan", "free")
 
-    # 2. Get or create user
     result = await db.execute(select(User).where(User.wp_user_id == body.wp_user_id))
     user = result.scalar_one_or_none()
 
@@ -59,13 +57,11 @@ async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(
     await db.commit()
     await db.refresh(user)
 
-    # 3. Usage
     from app.services.usage import get_usage_today, get_limit
     usage = await get_usage_today(db, user.id)
     limit = get_limit(user.plan)
     remaining = max(0, limit - usage.message_count)
 
-    # 4. JWT
     token = create_jwt(user.id, user.wp_user_id, user.plan)
 
     return TokenResponse(
@@ -74,6 +70,7 @@ async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(
         plan=user.plan,
         usage_remaining=remaining,
     )
+
 
 @router.get("/me")
 async def get_me(current_user: User = Depends(get_current_user)):
@@ -84,7 +81,6 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "plan_status": current_user.plan_status,
         "language_pref": current_user.language_pref,
     }
-
 
 
 async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
@@ -113,17 +109,3 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
     return data
-
-    
-if response.status_code not in (200, 202):
-        raise HTTPException(status_code=401, detail="Invalid WordPress session")
-
-    try:
-        data = response.json()
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid WordPress session")
-        
-    if not data.get("valid"):
-        raise HTTPException(status_code=401, detail="Invalid WordPress session")
-
-    return data  
