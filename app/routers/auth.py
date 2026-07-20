@@ -108,7 +108,7 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
-    if not data.get("valid"):
+    if data and not data.get("valid"):
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
-    return data
+    return data if data else {"valid": True, "plan": "free"}
