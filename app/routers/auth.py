@@ -103,11 +103,14 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
     if response.status_code not in (200, 202):
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
+import logging
+    logging.info(f"WP response status: {response.status_code}")
+    logging.info(f"WP response body: {response.text}")
+    
     try:
         data = response.json()
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
-
     if data and not data.get("valid"):
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
