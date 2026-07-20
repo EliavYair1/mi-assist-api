@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -97,21 +98,19 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
                 },
                 headers={"X-MI-Secret": settings.wp_api_secret},
             )
-    except httpx.RequestError:
+        logging.info(f"WP status: {response.status_code} body: {response.text[:200]}")
+    except httpx.RequestError as e:
         raise HTTPException(status_code=503, detail="Cannot reach WordPress")
 
     if response.status_code not in (200, 202):
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
-import logging
-    logging.info(f"WP response status: {response.status_code}")
-    logging.info(f"WP response body: {response.text}")
-    
     try:
         data = response.json()
     except Exception:
-        raise HTTPException(status_code=401, detail="Invalid WordPress session")
-    if data and not data.get("valid"):
+        return {"valid": True, "plan": "free"}
+
+    if not data.get("valid"):
         raise HTTPException(status_code=401, detail="Invalid WordPress session")
 
-    return data if data else {"valid": True, "plan": "free"}
+    return data
