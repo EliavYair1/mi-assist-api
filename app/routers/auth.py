@@ -3,7 +3,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel
 import httpx
-import re
 
 from app.database import get_db
 from app.models import User
@@ -89,11 +88,15 @@ async def _verify_wp_nonce(nonce: str, wp_user_id: int) -> dict:
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-        response = await client.get(
-    f"{settings.wp_site_url}/wp-json/mi-assist/v1/verify-nonce",
-    params={"nonce": nonce, "user_id": wp_user_id, "mi_secret": settings.wp_api_secret},
-    headers={"X-MI-Secret": settings.wp_api_secret},
-)
+            response = await client.get(
+                f"{settings.wp_site_url}/wp-json/mi-assist/v1/verify-nonce",
+                params={
+                    "nonce": nonce,
+                    "user_id": wp_user_id,
+                    "mi_secret": settings.wp_api_secret,
+                },
+                headers={"X-MI-Secret": settings.wp_api_secret},
+            )
     except httpx.RequestError:
         raise HTTPException(status_code=503, detail="Cannot reach WordPress")
 
