@@ -40,7 +40,7 @@ def normalize_plan(plan: str) -> str:
 @router.post("/exchange", response_model=TokenResponse)
 async def exchange_wp_session(body: ExchangeRequest, db: AsyncSession = Depends(get_db)):
     wp_data = await _verify_wp_nonce(body.wp_nonce, body.wp_user_id)
-    wp_plan = wp_data.get("plan", "free")
+   wp_plan = body.plan if body.plan != "free" else wp_data.get("plan", "free")
 
     result = await db.execute(select(User).where(User.wp_user_id == body.wp_user_id))
     user = result.scalar_one_or_none()
