@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from app.database import engine, Base
-from app.routers import auth, chat, usage, billing, upload
+from app.routers import auth, chat, usage, billing, upload, knowledge
 from app.config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -36,7 +36,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -45,7 +45,7 @@ app.include_router(chat.router,    prefix="/v1/chat",    tags=["Chat"])
 app.include_router(usage.router,   prefix="/v1/usage",   tags=["Usage"])
 app.include_router(billing.router, prefix="/v1/billing", tags=["Billing"])
 app.include_router(upload.router,  prefix="/v1/upload",  tags=["Upload"])
-
+app.include_router(knowledge.router, prefix="/v1/knowledge", tags=["Knowledge"])
 
 @app.get("/health")
 async def health():

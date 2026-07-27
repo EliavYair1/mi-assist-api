@@ -1,0 +1,100 @@
+import logging
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from openai import AsyncOpenAI
+from pydantic import BaseModel
+
+from app.database import get_db
+from app.auth import get_current_user
+from app.models import User
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+client = AsyncOpenAI(api_key=settings.openai_api_key)
+
+
+async def create_embedding(text_content: str) -> list:
+    response = await client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text_content
+    )
+    return response.data[0].embedding
+
+
+@router.post("/add-text")
+async def add_text_knowledge(
+    content: str = Form(...),
+    source: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Content is empty")
+
+    embedding = await create_embedding(content)
+
+    await db.execute(
+        text("""
+            INSERT INTO knowledge_chunks (id, content, source, embedding)
+            VALUES (:id, :content, :source, :embedding)
+        """),
+        {
+            "id": str(uuid.uuid4()),
+            "content": content,
+            "source": source,
+            "embedding": str(embedding),
+        }
+    )
+    await db.commit()
+
+    return {"success": True, "source": source, "message": "Added to knowledge base"}
+
+
+@router.get("/list")
+async def list_knowledge(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        text("SELECT id, source, LEFT(content, 100) as preview FROM knowledge_chunks ORDER BY source")
+    )
+    rows = result.fetchall()
+    return [{"id": str(r.id), "source": r.source, "preview": r.preview} for r in rows]
+
+
+@router.delete("/{chunk_id}")
+async def delete_knowledge(
+    chunk_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await db.execute(
+        text("DELETE FROM knowledge_chunks WHERE id = :id"),
+        {"id": chunk_id}
+    )
+    await db.commit()
+    return {"success": True, "deleted": chunk_id}
+
+
+@router.get("/search")
+async def search_knowledge(
+    q: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    embedding = await create_embedding(q)
+    result = await db.execute(
+        text("""
+            SELECT id, source, LEFT(content, 150) as preview,
+                   1 - (embedding <=> :embedding::vector) as score
+            FROM knowledge_chunks
+            ORDER BY embedding <=> :embedding::vector
+            LIMIT 10
+        """),
+        {"embedding": str(embedding)}
+    )
+    rows = result.fetchall()
+    return [{"id": str(r.id), "source": r.source, "preview": r.preview, "score": round(r.score, 3)} for r in rows]
