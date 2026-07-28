@@ -36,18 +36,19 @@ async def add_text_knowledge(
 
     embedding = await create_embedding(content)
 
-    await db.execute(
-        text("""
-            INSERT INTO knowledge_chunks (id, content, source, embedding)
-            VALUES (:id, :content, :source, :embedding)
-        """),
-        {
-            "id": str(uuid.uuid4()),
-            "content": content,
-            "source": source,
-            "embedding": str(embedding),
-        }
-    )
+ await db.execute(
+    text("""
+        INSERT INTO knowledge_chunks (id, content, source, embedding, domain)
+        VALUES (:id, :content, :source, :embedding, :domain)
+    """),
+    {
+        "id": str(uuid.uuid4()),
+        "content": content,
+        "source": source,
+        "embedding": str(embedding),
+        "domain": "safety",
+    }
+)
     await db.commit()
 
     return {"success": True, "source": source, "message": "Added to knowledge base"}
