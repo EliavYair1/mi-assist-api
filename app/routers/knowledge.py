@@ -1,10 +1,9 @@
 import logging
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from openai import AsyncOpenAI
-from pydantic import BaseModel
 
 from app.database import get_db
 from app.auth import get_current_user
@@ -36,22 +35,22 @@ async def add_text_knowledge(
 
     embedding = await create_embedding(content)
 
- await db.execute(
-    text("""
-        INSERT INTO knowledge_chunks (id, content, source, embedding, domain)
-        VALUES (:id, :content, :source, :embedding, :domain)
-    """),
-    {
-        "id": str(uuid.uuid4()),
-        "content": content,
-        "source": source,
-        "embedding": str(embedding),
-        "domain": "safety",
-    }
-)
+    await db.execute(
+        text("""
+            INSERT INTO knowledge_chunks (id, content, source, embedding, domain)
+            VALUES (:id, :content, :source, :embedding, :domain)
+        """),
+        {
+            "id": str(uuid.uuid4()),
+            "content": content,
+            "source": source,
+            "embedding": str(embedding),
+            "domain": "safety",
+        }
+    )
     await db.commit()
 
-    return {"success": True, "source": source, "message": "Added to knowledge base"}
+    return {"success": True, "source": source}
 
 
 @router.get("/list")
