@@ -98,3 +98,18 @@ async def search_knowledge(
     )
     rows = result.fetchall()
     return [{"id": str(r.id), "source": r.source, "preview": r.preview, "score": round(r.score, 3)} for r in rows]
+
+    @router.get("/{chunk_id}")
+async def get_knowledge(
+    chunk_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        text("SELECT id, source, content FROM knowledge_chunks WHERE id = :id"),
+        {"id": chunk_id}
+    )
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"id": str(row.id), "source": row.source, "content": row.content}
