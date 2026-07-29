@@ -100,7 +100,32 @@ async def get_knowledge(
         raise HTTPException(status_code=404, detail="Not found")
     return {"id": str(row.id), "source": row.source, "content": row.content}
 
+@router.put("/{chunk_id}")
+async def update_knowledge(
+    chunk_id: str,
+    content: str = Form(...),
+    source: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    embedding = await create_embedding(content)
+    await db.execute(
+        text("""
+            UPDATE knowledge_chunks 
+            SET content = :content, source = :source, embedding = :embedding
+            WHERE id = :id
+        """),
+        {
+            "content": content,
+            "source": source,
+            "embedding": str(embedding),
+            "id": chunk_id,
+        }
+    )
+    await db.commit()
+    return {"success": True}
 
+    
 @router.delete("/{chunk_id}")
 async def delete_knowledge(
     chunk_id: str,
