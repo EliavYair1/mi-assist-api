@@ -75,7 +75,7 @@ async def upload_pdf_knowledge(
     if not text_content.strip():
         raise HTTPException(status_code=400, detail="PDF appears to be empty or scanned")
 
-    chunk_size = 1000
+    chunk_size = 5000
     chunks = [text_content[i:i+chunk_size] for i in range(0, len(text_content), chunk_size)]
     chunks = [c for c in chunks if len(c.strip()) > 50]
 
