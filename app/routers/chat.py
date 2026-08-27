@@ -36,13 +36,22 @@ SAFETY_KEYWORDS = [
     "confined space", "hot work", "fall protection", "welding", "pipe", "tank",
     "pressure", "valve", "ultrasonic", "radiograph", "corrosion", "scaffold",
     "permit", "jsa", "hazop", "refinery", "pipeline", "asme", "ansi", "niosh",
-    "בטיחות", "בדיקה", "צנרת", "מיכל", "סכנה", "ציוד מגן"
+    "ladder", "climb", "height", "fall", "ppe", "hard hat", "harness", "rigging",
+    "crane", "excavation", "trench", "electrical", "arc flash", "chemical",
+    "toxic", "gas", "h2s", "benzene", "silica", "respirator", "ventilation",
+    "emergency", "incident", "accident", "near miss", "risk", "hazard",
+    "procedure", "sop", "jha", "work permit", "toolbox", "training",
+    "translate", "translation", "summarize", "explain", "what is", "how to",
+    "what are", "steps", "dwell", "wait time", "waiting", "time", "duration",
+    "בטיחות", "בדיקה", "צנרת", "מיכל", "סכנה", "ציוד מגן", "תרגם", "תרגום",
+    "סולם", "טיפוס", "גובה", "נפילה", "רתימה", "כימי", "גז", "נשימה",
+    "חירום", "תאונה", "סיכון", "נוהל", "הדרכה", "המתנה", "זמן"
 ]
-
 
 def is_safety_related(message: str) -> bool:
     msg_lower = message.lower()
     return any(kw in msg_lower for kw in SAFETY_KEYWORDS)
+
 
 
 @router.post("", response_model=ChatResponse)
@@ -58,11 +67,14 @@ async def send_message(
         limit = usage_svc.get_limit(current_user.plan)
         raise HTTPException(status_code=429, detail={"error": "daily_limit_reached", "plan": current_user.plan, "limit": limit, "message": "You've reached your daily question limit.", "upgrade_url": "/pricing"})
 
-    # 2. Domain check
+    # 2. Get/create conversation
     conversation = await _get_or_create_conversation(db, current_user, body.conversation_id)
-    if not is_safety_related(body.message) and not body.image_base64:
+
+    # 2b. Domain check — skip if this is a follow-up in existing conversation
+    is_followup = body.conversation_id is not None
+    if not is_followup and not is_safety_related(body.message) and not body.image_base64:
         return ChatResponse(
-            reply="MI Assist supports industrial safety, NDT methods, API inspection standards, OSHA compliance, maintenance activities, and field operations. Questions outside these professional areas are not supported.",
+            reply="MI Assist is focused on industrial safety, inspections, NDT, API-related guidance, field procedures, industrial compliance, and related field operations. Please ask a question related to one of these areas.",
             conversation_id=str(conversation.id),
             usage_remaining=remaining,
             plan=current_user.plan,
