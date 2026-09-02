@@ -70,15 +70,10 @@ async def send_message(
     # 2. Get/create conversation
     conversation = await _get_or_create_conversation(db, current_user, body.conversation_id)
 
-    # 2b. Domain check — skip if this is a follow-up in existing conversation
+    # 2b. Domain check — skip if follow-up OR short contextual question
     is_followup = body.conversation_id is not None
-    if not is_followup and not is_safety_related(body.message) and not body.image_base64:
-        return ChatResponse(
-            reply="MI Assist is focused on industrial safety, inspections, NDT, API-related guidance, field procedures, industrial compliance, and related field operations. Please ask a question related to one of these areas.",
-            conversation_id=str(conversation.id),
-            usage_remaining=remaining,
-            plan=current_user.plan,
-        )
+    is_short_contextual = len(body.message.strip()) < 60
+    if not is_followup and not is_short_contextual and not is_safety_related(body.message) and not body.image_base64:
 
     # 3. History
     result = await db.execute(select(Message).where(Message.conversation_id == conversation.id).order_by(Message.created_at.desc()).limit(MAX_HISTORY))
@@ -146,6 +141,73 @@ async def analyze_pdf(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 20MB.")
+
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    text = ""
+
+    try:
+        if ext == "pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(content))
+            if reader.is_encrypted:
+                try: reader.decrypt("")
+                except: pass
+            for page in reader.pages:
+                text += page.extract_text() or ""
+
+        elif ext == "docx":
+            import mammoth
+            result = mammoth.extract_raw_text(io.BytesIO(content))
+            text = result.value
+
+        elif ext in ("txt", "md"):
+            text = content.decode("utf-8", errors="ignore")
+
+        elif ext == "csv":
+            import csv
+            decoded = content.decode("utf-8", errors="ignore")
+            reader = csv.reader(decoded.splitlines())
+            rows = list(reader)
+            text = "\n".join([", ".join(row) for row in rows[:200]])
+
+        elif ext == "xlsx":
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
+            for sheet in wb.worksheets:
+                text += f"\n[Sheet: {sheet.title}]\n"
+                for row in sheet.iter_rows(max_row=200, values_only=True):
+                    text += ", ".join([str(c) if c is not None else "" for c in row]) + "\n"
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"File read error: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not read file: {str(e)}")
+
+    text = text[:12000]
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="File appears to be empty.")
+
+    messages = [{"role": "user", "content": f"Document content:\n\n{text}\n\nQuestion: {question}"}]
+    try:
+        reply, tokens = await chat_completion(messages=messages, user_language=current_user.language_pref)
+    except Exception as e:
+        logger.error(f"OpenAI error: {e}")
+        raise HTTPException(status_code=502, detail="AI service error.")
+
+    conversation = await _get_or_create_conversation(db, current_user, None)
+    db.add(Message(conversation_id=conversation.id, role="user", content=f"[FILE: {filename}] {question}"))
+    db.add(Message(conversation_id=conversation.id, role="assistant", content=reply, tokens_used=tokens))
+    await usage_svc.increment_message_count(db, current_user.id)
+    await db.commit()
+    return {"reply": reply, "conversation_id": str(conversation.id), "filename": filename}
     logger.info(f"PDF upload: filename={file.filename}, content_type={file.content_type}")
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
