@@ -16,6 +16,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 MAX_HISTORY = 10
 
+IMAGE_TYPES = ("jpg", "jpeg", "png", "webp")
+DOC_TYPES = ("pdf", "docx", "xlsx", "csv", "txt", "md", "pptx")
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -54,6 +57,24 @@ def is_safety_related(message: str) -> bool:
     return any(kw in msg_lower for kw in SAFETY_KEYWORDS)
 
 
+def check_image_permission(plan: str) -> str | None:
+    """Returns error message if plan doesn't allow images, else None."""
+    if plan == "free":
+        return "Image analysis is not available on the Free plan. Upgrade to Pro or higher to analyze images."
+    return None
+
+
+def check_file_permission(plan: str, ext: str) -> str | None:
+    """Returns error message if plan doesn't allow this file type, else None."""
+    if ext in IMAGE_TYPES:
+        if plan == "free":
+            return "Image uploads require Pro plan or higher."
+    elif ext in DOC_TYPES:
+        if plan in ("free", "pro"):
+            return "Document uploads require Expert plan or higher."
+    return None
+
+
 @router.post("", response_model=ChatResponse)
 async def send_message(
     body: ChatRequest,
@@ -75,6 +96,17 @@ async def send_message(
 
     # 2. Get/create conversation
     conversation = await _get_or_create_conversation(db, current_user, body.conversation_id)
+
+    # 2a. Plan-based image restrictions
+    if body.image_base64:
+        err = check_image_permission(current_user.plan)
+        if err:
+            return ChatResponse(
+                reply=err,
+                conversation_id=str(conversation.id),
+                usage_remaining=remaining,
+                plan=current_user.plan,
+            )
 
     # 2b. Domain check — skip if follow-up OR short contextual question
     is_followup = body.conversation_id is not None
@@ -215,6 +247,12 @@ async def analyze_file(
 
     filename = file.filename or ""
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    # Plan-based file restrictions
+    err = check_file_permission(current_user.plan, ext)
+    if err:
+        raise HTTPException(status_code=403, detail=err)
+
     text = ""
 
     try:
@@ -249,6 +287,24 @@ async def analyze_file(
                 text += f"\n[Sheet: {sheet.title}]\n"
                 for row in sheet.iter_rows(max_row=200, values_only=True):
                     text += ", ".join([str(c) if c is not None else "" for c in row]) + "\n"
+
+        elif ext in IMAGE_TYPES:
+            import base64
+            b64 = base64.b64encode(content).decode()
+            mime = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+            from app.services.openai_service import client as openai_client
+            response = await openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                        {"type": "text", "text": question}
+                    ]
+                }],
+                max_tokens=1000
+            )
+            text = response.choices[0].message.content
 
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
