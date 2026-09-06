@@ -1,6 +1,7 @@
 import logging
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Form
+import io
+from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from openai import AsyncOpenAI
@@ -9,8 +10,6 @@ from app.database import get_db
 from app.auth import get_current_user
 from app.models import User
 from app.config import settings
-from fastapi import UploadFile, File
-import io
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -51,29 +50,76 @@ async def add_text_knowledge(
     await db.commit()
     return {"success": True, "source": source}
 
+
 @router.post("/upload-pdf")
-async def upload_pdf_knowledge(
+async def upload_file_knowledge(
     source: str = Form(...),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files allowed")
-
     content = await file.read()
+    filename = file.filename or ""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    text_content = ""
 
     try:
-        import pypdf
-        reader = pypdf.PdfReader(io.BytesIO(content))
-        text_content = ""
-        for page in reader.pages:
-            text_content += page.extract_text() + "\n"
+        if ext == "pdf":
+            import pypdf
+            reader = pypdf.PdfReader(io.BytesIO(content))
+            for page in reader.pages:
+                text_content += page.extract_text() + "\n"
+
+        elif ext == "docx":
+            import mammoth
+            result = mammoth.extract_raw_text(io.BytesIO(content))
+            text_content = result.value
+
+        elif ext in ("txt", "md"):
+            text_content = content.decode("utf-8", errors="ignore")
+
+        elif ext == "csv":
+            import csv
+            decoded = content.decode("utf-8", errors="ignore")
+            reader = csv.reader(decoded.splitlines())
+            rows = list(reader)
+            text_content = "\n".join([", ".join(row) for row in rows[:500]])
+
+        elif ext == "xlsx":
+            import openpyxl
+            wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True)
+            for sheet in wb.worksheets:
+                text_content += f"\n[Sheet: {sheet.title}]\n"
+                for row in sheet.iter_rows(max_row=500, values_only=True):
+                    text_content += ", ".join([str(c) if c is not None else "" for c in row]) + "\n"
+
+        elif ext in ("jpg", "jpeg", "png", "webp"):
+            import base64
+            b64 = base64.b64encode(content).decode()
+            mime = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+            response = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                        {"type": "text", "text": "Describe this image in detail for an industrial safety knowledge base. Extract all text, labels, measurements, warnings, and technical information visible."}
+                    ]
+                }],
+                max_tokens=1000
+            )
+            text_content = response.choices[0].message.content
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
+
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Could not read file: {str(e)}")
 
     if not text_content.strip():
-        raise HTTPException(status_code=400, detail="PDF appears to be empty or scanned")
+        raise HTTPException(status_code=400, detail="File appears to be empty.")
 
     chunk_size = 5000
     chunks = [text_content[i:i+chunk_size] for i in range(0, len(text_content), chunk_size)]
@@ -97,8 +143,9 @@ async def upload_pdf_knowledge(
         )
 
     await db.commit()
-    return {"success": True, "source": source, "chunks": len(chunks)}
-    
+    return {"success": True, "source": source, "chunks": len(chunks), "file_type": ext}
+
+
 @router.get("/list")
 async def list_knowledge(
     current_user: User = Depends(get_current_user),
