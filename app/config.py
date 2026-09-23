@@ -9,11 +9,11 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 700
 
     # Database
-    database_url: str  # postgresql+asyncpg://user:pass@localhost/mi_assist
+    database_url: str
 
     # WordPress
-    wp_site_url: str               # https://yourdomain.com
-    wp_api_secret: str             # shared secret for nonce validation
+    wp_site_url: str
+    wp_api_secret: str
 
     # JWT
     jwt_secret: str
@@ -23,30 +23,27 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_price_pro: str = ""
-    stripe_price_pro_plus: str = ""
+    stripe_price_expert: str = ""
     stripe_price_team: str = ""
 
     # PayPal
     paypal_client_id: str = ""
     paypal_client_secret: str = ""
     paypal_plan_pro: str = ""
-    paypal_plan_pro_plus: str = ""
+    paypal_plan_expert: str = ""
     paypal_plan_team: str = ""
-    paypal_mode: str = "live"      # "sandbox" for testing
+    paypal_mode: str = "live"
 
-    # Storage (Cloudflare R2 — compatible with boto3)
+    # Storage
     r2_account_id: str = ""
     r2_access_key: str = ""
     r2_secret_key: str = ""
     r2_bucket: str = "mi-assist-uploads"
-    r2_endpoint: str = ""          # https://<account_id>.r2.cloudflarestorage.com
+    r2_endpoint: str = ""
 
     # App
     cors_origins: List[str] = ["https://yourdomain.com"]
-    daily_limit_free: int = 5
-    daily_limit_paid: int = 200
-    upload_limit_pro_plus: int = 20   # per month
-    max_upload_mb: int = 10
+    max_upload_mb: int = 20
     debug: bool = False
 
     class Config:
@@ -58,14 +55,14 @@ settings = Settings()
 
 # Plan daily message limits
 PLAN_LIMITS = {
-    "free":     settings.daily_limit_free,
-    "pro":      settings.daily_limit_paid,
-    "pro_plus": settings.daily_limit_paid,
-    "team":     settings.daily_limit_paid,
+    "free":    20,
+    "pro":     200,
+    "expert":  999999,
+    "team":    999999,
 }
 
-# Plans that allow file upload
-UPLOAD_PLANS = {"pro_plus", "team"}
+# Plans that allow document uploads (PDF, DOCX, XLSX, CSV, TXT, MD)
+UPLOAD_PLANS = {"expert", "team"}
 
 # Plans that allow image analysis
-IMAGE_PLANS = {"pro", "pro_plus", "team"}
+IMAGE_PLANS = {"pro", "expert", "team"}

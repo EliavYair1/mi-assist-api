@@ -17,22 +17,22 @@ stripe.api_key = settings.stripe_secret_key
 
 # Map Stripe Price IDs → plan names
 STRIPE_PRICE_TO_PLAN = {
-    settings.stripe_price_pro:      "pro",
-    settings.stripe_price_pro_plus: "pro_plus",
-    settings.stripe_price_team:     "team",
+    settings.stripe_price_pro:     "pro",
+    settings.stripe_price_expert:  "expert",
+    settings.stripe_price_team:    "team",
 }
 
 # Map PayPal Plan IDs → plan names
 PAYPAL_PLAN_TO_PLAN = {
-    settings.paypal_plan_pro:      "pro",
-    settings.paypal_plan_pro_plus: "pro_plus",
-    settings.paypal_plan_team:     "team",
+    settings.paypal_plan_pro:     "pro",
+    settings.paypal_plan_expert:  "expert",
+    settings.paypal_plan_team:    "team",
 }
 
 
 class SubscribeRequest(BaseModel):
-    plan: str          # "pro" | "pro_plus" | "team"
-    provider: str      # "stripe" | "paypal"
+    plan: str      # "pro" | "expert" | "team"
+    provider: str  # "stripe" | "paypal"
 
 
 @router.post("/subscribe")
@@ -41,10 +41,6 @@ async def create_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Returns a Stripe Checkout URL or PayPal approval URL.
-    The frontend redirects the user there.
-    """
     if body.provider == "stripe":
         return await _stripe_checkout(current_user, body.plan)
     elif body.provider == "paypal":
@@ -55,17 +51,14 @@ async def create_subscription(
 
 @router.get("/portal")
 async def billing_portal(current_user: User = Depends(get_current_user)):
-    """Redirect to Stripe customer portal for plan management / cancellation."""
     if not current_user.stripe_customer_id:
-        raise HTTPException(status_code=400, detail="No Stripe account found. Use the PayPal portal instead.")
+        raise HTTPException(status_code=400, detail="No Stripe account found.")
     session = stripe.billing_portal.Session.create(
         customer=current_user.stripe_customer_id,
         return_url=f"{settings.wp_site_url}/mi-assist/",
     )
     return {"url": session.url}
 
-
-# ── WEBHOOK (Stripe + PayPal share one endpoint) ──
 
 @router.post("/webhook")
 async def billing_webhook(request: Request, db: AsyncSession = Depends(get_db)):
@@ -77,7 +70,6 @@ async def billing_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         await _handle_paypal_event(data, db)
         return {"status": "ok"}
 
-    # Default: Stripe
     sig = request.headers.get("stripe-signature", "")
     try:
         event = stripe.Webhook.construct_event(body, sig, settings.stripe_webhook_secret)
@@ -88,21 +80,21 @@ async def billing_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     return {"status": "ok"}
 
 
-# ── STRIPE HANDLERS ──
-
 async def _stripe_checkout(user: User, plan: str) -> dict:
     price_id = {
-        "pro":      settings.stripe_price_pro,
-        "pro_plus": settings.stripe_price_pro_plus,
-        "team":     settings.stripe_price_team,
+        "pro":    settings.stripe_price_pro,
+        "expert": settings.stripe_price_expert,
+        "team":   settings.stripe_price_team,
     }.get(plan)
     if not price_id:
         raise HTTPException(status_code=400, detail=f"Unknown plan: {plan}")
 
-    # Create or retrieve Stripe customer
     customer_id = user.stripe_customer_id
     if not customer_id:
-        customer = stripe.Customer.create(email=user.email, metadata={"mi_user_id": user.id})
+        customer = stripe.Customer.create(
+            email=user.email,
+            metadata={"mi_user_id": user.id}
+        )
         customer_id = customer.id
 
     session = stripe.checkout.Session.create(
@@ -124,10 +116,9 @@ async def _handle_stripe_event(event: dict, db: AsyncSession):
 
     if event_type in ("customer.subscription.created", "customer.subscription.updated"):
         customer_id = obj["customer"]
-        status = obj["status"]               # active / past_due / canceled / trialing
+        status = obj["status"]
         price_id = obj["items"]["data"][0]["price"]["id"]
         plan = STRIPE_PRICE_TO_PLAN.get(price_id, "free")
-
         await _update_user_by_stripe_customer(db, customer_id, plan, status, obj["id"])
 
     elif event_type == "customer.subscription.deleted":
@@ -139,7 +130,6 @@ async def _handle_stripe_event(event: dict, db: AsyncSession):
         await _update_user_by_stripe_customer(db, customer_id, None, "past_due", None)
 
     elif event_type == "checkout.session.completed":
-        # Link the Stripe customer ID to our user
         mi_user_id = obj.get("metadata", {}).get("mi_user_id")
         customer_id = obj.get("customer")
         if mi_user_id and customer_id:
@@ -170,13 +160,11 @@ async def _update_user_by_stripe_customer(
     logger.info(f"User {user.id} plan={user.plan} status={user.plan_status}")
 
 
-# ── PAYPAL HANDLERS ──
-
 async def _paypal_create_subscription(user: User, plan: str) -> dict:
     plan_id = {
-        "pro":      settings.paypal_plan_pro,
-        "pro_plus": settings.paypal_plan_pro_plus,
-        "team":     settings.paypal_plan_team,
+        "pro":    settings.paypal_plan_pro,
+        "expert": settings.paypal_plan_expert,
+        "team":   settings.paypal_plan_team,
     }.get(plan)
     if not plan_id:
         raise HTTPException(status_code=400, detail=f"Unknown plan: {plan}")
