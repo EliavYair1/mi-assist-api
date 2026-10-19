@@ -22,10 +22,9 @@ class Settings(BaseSettings):
     # Stripe
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
-    stripe_price_pro: str = ""
-    stripe_price_expert: str = ""
-    stripe_price_team: str = ""
-
+stripe_price_pro: str = "price_1TYlYCANvKeqXTRuh62Q2kob"
+stripe_price_expert: str = "price_1TYlYzANvKeqXTRu4iI7ODbj"
+stripe_price_team: str = "price_1TYlZEANvKeqXTRuULugX2LQ"
     # PayPal
     paypal_client_id: str = ""
     paypal_client_secret: str = ""
