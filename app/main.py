@@ -7,6 +7,10 @@ from app.database import engine, Base
 from app.routers import auth, chat, usage, billing, upload, knowledge
 from app.config import settings
 
+from app.routers.notifications import router as notify_router
+app.include_router(notify_router)
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
